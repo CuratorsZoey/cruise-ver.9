@@ -146,9 +146,9 @@
                     <div v-for="(item, i) in applyItems" :key="i" class="flex items-center gap-3 p-2.5 border border-slate-200 rounded-lg mb-2 text-sm">
                         <a-checkbox v-model:checked="item.checked"></a-checkbox>
                         <span class="font-bold flex-1">{{ item.change.field }}</span>
-                        <span class="text-slate-500">{{ item.change.prefix || '' }} {{ item.change.oldValue.toLocaleString() }}</span>
+                        <span class="text-slate-500 whitespace-pre-wrap break-words max-w-[40%]">{{ fmtChangeValue(item.change, item.change.oldValue) }}</span>
                         <span class="text-slate-300">➔</span>
-                        <span class="font-bold text-red-600">{{ item.change.prefix || '' }} {{ (item.change.jsonValue || item.change.apiValue).toLocaleString() }}</span>
+                        <span class="font-bold text-red-600 whitespace-pre-wrap break-words max-w-[40%]">{{ fmtChangeValue(item.change, item.change.jsonValue ?? item.change.apiValue) }}</span>
                     </div>
                 </div>
             </template>
@@ -1079,20 +1079,20 @@
                                                                 <div class="grid grid-cols-4 gap-0 border border-slate-200 rounded-lg overflow-hidden bg-slate-50 text-sm">
                                                                     <div class="p-2 border-r border-slate-200 flex flex-col justify-center">
                                                                         <div class="text-[10px] font-bold text-slate-400 mb-1">目前上架值</div>
-                                                                        <div class="text-slate-600 font-medium">{{ change.prefix || '' }} {{ change.oldValue.toLocaleString() }}</div>
+                                                                        <div class="text-slate-600 font-medium whitespace-pre-wrap break-words">{{ fmtChangeValue(change, change.oldValue) }}</div>
                                                                     </div>
                                                                     <div class="p-2 border-r border-slate-200 bg-slate-100 flex flex-col justify-center">
                                                                         <div class="text-[10px] font-bold text-slate-500 mb-1">前次 Scan 值</div>
-                                                                        <div class="text-slate-500 font-medium">{{ change.prefix || '' }} {{ (change.prevScanValue || change.oldValue).toLocaleString() }}</div>
+                                                                        <div class="text-slate-500 font-medium whitespace-pre-wrap break-words">{{ fmtChangeValue(change, change.prevScanValue ?? change.oldValue) }}</div>
                                                                     </div>
                                                                     <div class="p-2 border-r border-slate-200 bg-blue-50/50 flex flex-col justify-center">
                                                                         <div class="text-[10px] font-bold text-blue-500 mb-1">本次 Scan 值</div>
-                                                                        <div class="font-bold text-blue-700">{{ change.prefix || '' }} {{ change.apiValue.toLocaleString() }}</div>
+                                                                        <div class="font-bold text-blue-700 whitespace-pre-wrap break-words">{{ fmtChangeValue(change, change.apiValue) }}</div>
                                                                     </div>
-                                                                    <div class="p-2 bg-amber-50/30 flex justify-between items-center">
-                                                                        <div class="flex flex-col justify-center">
+                                                                    <div class="p-2 bg-amber-50/30 flex justify-between items-center gap-2">
+                                                                        <div class="flex flex-col justify-center min-w-0">
                                                                             <div class="text-[10px] font-bold text-red-500 mb-0.5">最新 Json 檔值</div>
-                                                                            <div class="font-extrabold text-red-600 text-xs">{{ change.prefix || '' }} {{ (change.jsonValue || change.apiValue).toLocaleString() }}</div>
+                                                                            <div class="font-extrabold text-red-600 text-xs whitespace-pre-wrap break-words">{{ fmtChangeValue(change, change.jsonValue ?? change.apiValue) }}</div>
                                                                         </div>
                                                                         <span v-if="change.applied" class="text-[10px] font-bold text-emerald-600 self-center">✓ 已套用</span>
                                                                         <button v-else-if="record.approvalStatus !== 'archived'" @click.stop="applyJsonValueDirectly(record, change)" class="bg-blue-500 hover:bg-blue-600 text-white font-bold text-[10px] px-1.5 py-0.5 rounded transition-colors self-center">套用</button>
@@ -1255,12 +1255,16 @@
                                             <a-select v-model:value="formFields.startCity" class="w-full">
                                                 <a-select-option v-for="city in cityOptions" :key="city.value" :value="city.value">{{ city.label }}</a-select-option>
                                             </a-select>
+                                            <field-change v-for="fc in getPathChanges(['startCity'])" :key="fc.change.field" :change="fc.change" :time="fc.time" :formatter="fmtChangeValue"
+                                                          @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
                                         </div>
                                         <div class="space-y-1.5">
                                             <label class="text-sm font-semibold text-slate-600"><span class="text-red-500 mr-1">*</span>抵達港口城市代碼</label>
                                             <a-select v-model:value="formFields.endCity" class="w-full">
                                                 <a-select-option v-for="city in cityOptions" :key="city.value" :value="city.value">{{ city.label }}</a-select-option>
                                             </a-select>
+                                            <field-change v-for="fc in getPathChanges(['endCity'])" :key="fc.change.field" :change="fc.change" :time="fc.time" :formatter="fmtChangeValue"
+                                                          @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
                                         </div>
                                         <div class="space-y-1.5">
                                             <label class="text-sm font-semibold text-slate-600"><span class="text-red-500 mr-1">*</span>出發日期</label>
@@ -1573,7 +1577,9 @@
                                                 <label class="text-xs font-bold text-slate-500 flex items-center gap-1.5">
                                                     <span>行程敘述編輯區</span>
                                                 </label>
-                                                <a-textarea v-model:value="day.description" :rows="3" placeholder="請輸入本天的特色行程敘述..." class="font-mono text-slate-700 leading-relaxed rounded-xl" ></a-textarea>
+                                                <a-textarea v-model:value="day.description" :rows="3" placeholder="請輸入本天的特色行程敘述..." class="font-mono text-slate-700 leading-relaxed rounded-xl" :class="hasPendingChange(['dailySchedules', index, 'description']) ? '!border-amber-400 !bg-amber-50' : ''"></a-textarea>
+                                                <field-change v-for="fc in getPathChanges(['dailySchedules', index, 'description'])" :key="fc.change.field" :change="fc.change" :time="fc.time"
+                                                              @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
                                             </div>
                                             <div class="bg-white p-3.5 rounded-xl border border-slate-200 text-xs text-slate-600 flex flex-col justify-start">
                                                 <div class="text-[10px] text-slate-400 font-bold mb-1.5 tracking-wider uppercase">即時排版預覽</div>
@@ -2671,8 +2677,8 @@
                         dailySchedules: [{ date: '2026-08-31', port: 'barcelona', dockTime: '17:00', departureTime: '22:00', description: '今日於巴塞隆納港辦理登船。', isSeaDay: false, imageUrl: null }],
                         apiLogs: [
                             { 
-                                id: 'log_01', time: '2026/06/12 09:30', type: '行程異動', message: 'API 同步：發現行程時間發生調整',
-                                changes: [{ field: '第1天 靠港時間', oldValue: '17:00', prevScanValue: '18:00', apiValue: '16:00', jsonValue: '16:00', newValue: '16:00', inputType: 'string', prefix: '', keyPath: ['dailySchedules', 0, 'dockTime'] }]
+                                id: 'log_01', time: '2026/06/12 09:30', type: '行程異動', message: 'API 同步：第 1 天行程敘述文字調整',
+                                changes: [{ field: '第1天 行程敘述', oldValue: '今日於巴塞隆納港辦理登船。', prevScanValue: '今日於巴塞隆納港辦理登船。', apiValue: '今日於巴塞隆納港辦理登船，晚間啟航前往下一站。', jsonValue: '今日於巴塞隆納港辦理登船，晚間啟航前往下一站。', newValue: '今日於巴塞隆納港辦理登船，晚間啟航前往下一站。', inputType: 'text', prefix: '', keyPath: ['dailySchedules', 0, 'description'] }]
                             }
                         ], historyLogs: []
                     },
@@ -2687,15 +2693,11 @@
                         rooms: { inside: { nameZh: '標準內艙房', discountPrice: 1200, originalPrice: 1400, isFull: false }, oceanview: { nameZh: '經典海景房', discountPrice: 1450, originalPrice: 1650, isFull: false }, balcony: { nameZh: '豪華陽台房', discountPrice: 1800, originalPrice: 2100, isFull: false }, suite: { nameZh: '頂級奢華套房', discountPrice: 2600, originalPrice: 3000, isFull: false } },
                         dailySchedules: [{ date: '2026-10-05', port: 'keelung', dockTime: '16:00', departureTime: '20:00', description: '於基隆港辦理登船。', isSeaDay: false, imageUrl: null }],
                         apiLogs: [
-                            { id: 'log_m1', time: '2026/11/09 10:15', type: '價格異動', message: 'API 同步：4 種艙房優惠價同時調整', changes: [
-                                { field: '內艙房 優惠價', oldValue: 1200, prevScanValue: 1250, apiValue: 1350, jsonValue: 1350, newValue: 1350, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'inside', 'discountPrice'] },
-                                { field: '海景房 優惠價', oldValue: 1450, prevScanValue: 1450, apiValue: 1580, jsonValue: 1580, newValue: 1580, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'oceanview', 'discountPrice'] },
-                                { field: '陽台房 優惠價', oldValue: 1800, prevScanValue: 1850, apiValue: 1990, jsonValue: 1990, newValue: 1990, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'balcony', 'discountPrice'] },
-                                { field: '套房 優惠價', oldValue: 2600, prevScanValue: 2600, apiValue: 2880, jsonValue: 2880, newValue: 2880, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'suite', 'discountPrice'] }
+                            { id: 'log_m1', time: '2026/11/09 10:15', type: '港口異動', message: 'API 同步：抵達港口變更', changes: [
+                                { field: '抵達港口', oldValue: 'yokohama', prevScanValue: 'yokohama', apiValue: 'keelung', jsonValue: 'keelung', newValue: 'keelung', inputType: 'port', prefix: '', keyPath: ['endCity'] }
                             ] },
-                            { id: 'log_m2', time: '2026/11/09 10:15', type: '行程異動', message: 'API 同步：第 1 天靠港與離港時間調整', changes: [
-                                { field: '第1天 靠港時間', oldValue: '16:00', prevScanValue: '16:00', apiValue: '15:00', jsonValue: '15:00', newValue: '15:00', inputType: 'string', prefix: '', keyPath: ['dailySchedules', 0, 'dockTime'] },
-                                { field: '第1天 離港時間', oldValue: '20:00', prevScanValue: '20:00', apiValue: '21:30', jsonValue: '21:30', newValue: '21:30', inputType: 'string', prefix: '', keyPath: ['dailySchedules', 0, 'departureTime'] }
+                            { id: 'log_m2', time: '2026/11/09 10:15', type: '行程異動', message: 'API 同步：第 1 天行程敘述文字調整', changes: [
+                                { field: '第1天 行程敘述', oldValue: '於基隆港辦理登船。', prevScanValue: '於基隆港辦理登船。', apiValue: '於基隆港辦理登船，傍晚啟航。', jsonValue: '於基隆港辦理登船，傍晚啟航。', newValue: '於基隆港辦理登船，傍晚啟航。', inputType: 'text', prefix: '', keyPath: ['dailySchedules', 0, 'description'] }
                             ] }
                         ], historyLogs: []
                     },
@@ -2710,8 +2712,8 @@
                         rooms: { inside: { nameZh: '標準內艙房', discountPrice: 500, originalPrice: 600, isFull: false } }, dailySchedules: [],
                         apiLogs: [
                             { 
-                                id: 'log_02', time: '2026/06/10 14:20', type: '價格異動', message: 'API 同步：艙房價格調整',
-                                changes: [{ field: '內艙房 優惠價', oldValue: 500, prevScanValue: 550, apiValue: 500, jsonValue: 500, newValue: 500, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'inside', 'discountPrice'] }]
+                                id: 'log_02', time: '2026/06/10 14:20', type: '港口異動', message: 'API 同步：出發港口變更',
+                                changes: [{ field: '出發港口', oldValue: 'keelung', prevScanValue: 'yokohama', apiValue: 'keelung', jsonValue: 'keelung', newValue: 'keelung', inputType: 'port', prefix: '', keyPath: ['startCity'] }]
                             }
                         ], historyLogs: []
                     }
@@ -2723,6 +2725,33 @@
                     safeText = safeText.replace(/\*\*(.*?)\*\*/g, '<strong class="font-extrabold text-blue-900">$1</strong>');
                     return safeText;
                 };
+
+                // ===== 航線異動通知規則：只有「出發／抵達港口」與「每日行程敘述文字」異動才跳通知 =====
+                const isNotifiableChange = (c) => {
+                    const p = c?.keyPath || [];
+                    if (p[0] === 'startCity' || p[0] === 'endCity') return true;
+                    if (p[0] === 'dailySchedules' && p[2] === 'description') return true;
+                    return false;
+                };
+                // 過濾 API 收到的 log：只保留需通知的欄位；全部不需通知則回傳 null（不產生通知）
+                const filterNotifiableLog = (log) => {
+                    const changes = (log?.changes || []).filter(isNotifiableChange);
+                    return changes.length ? { ...log, changes } : null;
+                };
+                const fmtChangeValue = (change, v) => {
+                    if (v === null || v === undefined || v === '') return '—';
+                    if (change?.inputType === 'port') return getCityLabel(v);
+                    return `${change?.prefix ? change.prefix + ' ' : ''}${typeof v === 'number' ? v.toLocaleString() : v}`;
+                };
+                // 出發／抵達港口套用時，同步列表顯示用的 startLocation / endLocation
+                const syncLocationLabel = (obj, p) => {
+                    if (!obj || !p) return;
+                    if (p[0] === 'startCity') obj.startLocation = getCityLabel(obj.startCity);
+                    if (p[0] === 'endCity') obj.endLocation = getCityLabel(obj.endCity);
+                };
+
+                // 既有通知資料也套用同一規則（非港口／行程文字的異動不顯示）
+                dataSource.value.forEach(r => { if (r.apiLogs?.length) r.apiLogs = r.apiLogs.map(filterNotifiableLog).filter(Boolean); });
 
                 const filteredHistoryLogs = computed(() => {
                     if (!editingRecord.value || !editingRecord.value.historyLogs) return [];
@@ -2756,6 +2785,7 @@
                         obj = obj[change.keyPath[i]];
                     }
                     obj[change.keyPath[change.keyPath.length - 1]] = change.newValue;
+                    syncLocationLabel(record, change.keyPath);
                     change.applied = true;
                     if (!silent) triggerToast(`已成功套用最新 Json 檔值！`);
                 };
@@ -2965,15 +2995,32 @@
                     selectedKeys.value = []; 
                 };
 
-                const simulateApiUpdate = (record) => {
-                    const randomSuffix = Math.floor(Math.random() * 500) + 100;
+                // 模擬 API 收到的原始異動（含價格等不需通知的欄位，會被規則過濾掉）
+                const buildSimulatedApiLog = (record, idPrefix = '') => {
+                    const now = dayjs().format('YYYY/MM/DD HH:mm');
+                    const raw = [];
                     const oldPrice = record.rooms?.inside?.discountPrice || 1400;
-                    const apiNewPrice = oldPrice + randomSuffix;
-
-                    const newLog = {
-                        id: Date.now(), time: dayjs().format('YYYY/MM/DD HH:mm'), type: '價格異動', message: `API 異動同步：發現內艙房價格更新為 USD $ ${apiNewPrice}`,
-                        changes: [{ field: '內艙房 優惠價', oldValue: oldPrice, prevScanValue: oldPrice - 50, apiValue: apiNewPrice, jsonValue: apiNewPrice, newValue: apiNewPrice, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'inside', 'discountPrice'] }]
+                    raw.push({ field: '內艙房 優惠價', oldValue: oldPrice, prevScanValue: oldPrice, apiValue: oldPrice + 120, jsonValue: oldPrice + 120, newValue: oldPrice + 120, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'inside', 'discountPrice'] });
+                    const day0 = record.dailySchedules?.[0];
+                    if (day0 && !day0.isSeaDay) {
+                        const newText = `${day0.description || ''}（行程文字已更新 ${now}）`;
+                        raw.push({ field: '第1天 行程敘述', oldValue: day0.description || '', prevScanValue: day0.description || '', apiValue: newText, jsonValue: newText, newValue: newText, inputType: 'text', prefix: '', keyPath: ['dailySchedules', 0, 'description'] });
+                    } else {
+                        const next = cityOptions.find(c => c.value !== record.endCity && c.value !== 'sea')?.value || record.endCity;
+                        raw.push({ field: '抵達港口', oldValue: record.endCity, prevScanValue: record.endCity, apiValue: next, jsonValue: next, newValue: next, inputType: 'port', prefix: '', keyPath: ['endCity'] });
+                    }
+                    const filtered = filterNotifiableLog({ changes: raw });
+                    const types = [...new Set((filtered?.changes || []).map(c => c.inputType === 'port' ? '港口異動' : '行程異動'))];
+                    return {
+                        log: filtered ? { id: idPrefix + Date.now(), time: now, type: types.join('／'), message: `API 同步：${filtered.changes.map(c => c.field).join('、')} 變更`, changes: filtered.changes } : null,
+                        ignored: raw.length - (filtered?.changes.length || 0)
                     };
+                };
+
+                const simulateApiUpdate = (record) => {
+                    const { log: newLog, ignored } = buildSimulatedApiLog(record);
+                    if (!newLog) { triggerToast('本次 API 異動僅含價格等其他欄位，不產生通知。', 'info'); return; }
+                    if (ignored > 0) triggerToast(`已忽略 ${ignored} 項不需通知的異動（如價格），僅港口／行程文字異動進入通知。`, 'info');
 
                     if (record.approvalStatus === 'draft') {
                         const backupDraft = JSON.parse(JSON.stringify(record));
@@ -2995,13 +3042,9 @@
 
                 const reviveBlacklistedRoute = (record) => {
                     record.approvalStatus = 'pending'; 
-                    const basePrice = record.rooms?.inside?.discountPrice || 1000;
-                    const simulatedJsonPrice = basePrice + 120;
-                    const newLog = {
-                        id: 'revive_json_' + Date.now(), time: dayjs().format('YYYY/MM/DD HH:mm'), type: '黑名單復活 JSON 導入', message: 'API 同步：黑名單復活並重新打入最新 JSON 航線資料',
-                        changes: [{ field: '內艙房 優惠價', oldValue: basePrice, prevScanValue: basePrice, apiValue: simulatedJsonPrice, jsonValue: simulatedJsonPrice, newValue: simulatedJsonPrice, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'inside', 'discountPrice'] }]
-                    };
-                    record.apiLogs = [newLog]; 
+                    const { log: built } = buildSimulatedApiLog(record, 'revive_json_');
+                    const newLog = built ? { ...built, type: '黑名單復活 JSON 導入', message: 'API 同步：黑名單復活並重新打入最新 JSON 航線資料' } : null;
+                    record.apiLogs = newLog ? [newLog] : []; 
                     triggerToast(`黑名單航線 ${record.code} 已成功復活！已重新打入最新 JSON 數據並進入「待審核」。`, 'success');
                 };
 
@@ -3033,7 +3076,8 @@
                 const isMappedPath = (p) => {
                     const f = formFields.value; if (!f || !p) return false;
                     if (p[0] === 'rooms') return !!(f.rooms && f.rooms[p[1]]) && ['discountPrice', 'originalPrice'].includes(p[2]);
-                    if (p[0] === 'dailySchedules') return !!(f.dailySchedules && f.dailySchedules[p[1]]) && ['dockTime', 'departureTime'].includes(p[2]);
+                    if (p[0] === 'dailySchedules') return !!(f.dailySchedules && f.dailySchedules[p[1]]) && ['dockTime', 'departureTime', 'description'].includes(p[2]);
+                    if (p[0] === 'startCity' || p[0] === 'endCity') return true;
                     return false;
                 };
                 const unmappedFormChanges = computed(() => formChangeEntries.value.filter(e => !isMappedPath(e.change.keyPath)));
@@ -3041,33 +3085,41 @@
                 const getPathChanges = (p) => { const k = pathKey(p); return formChangeEntries.value.filter(e => pathKey(e.change.keyPath) === k); };
                 const hasPendingChange = (p) => getPathChanges(p).some(e => !isChangeDone(e.change));
                 const tabPendingCount = (tab) => pendingFormChanges.value.filter(c => isMappedPath(c.keyPath) && (
-                    (tab === 2 && c.keyPath[0] === 'rooms') || (tab === 3 && c.keyPath[0] === 'dailySchedules'))).length;
+                    (tab === 1 && (c.keyPath[0] === 'startCity' || c.keyPath[0] === 'endCity')) || (tab === 2 && c.keyPath[0] === 'rooms') || (tab === 3 && c.keyPath[0] === 'dailySchedules'))).length;
                 const roomPendingCount = (rKey) => pendingFormChanges.value.filter(c => c.keyPath[0] === 'rooms' && c.keyPath[1] === rKey && isMappedPath(c.keyPath)).length;
 
                 const applyFieldChange = (change) => {
                     const v = change.jsonValue ?? change.apiValue;
                     change._prevValue = getByPath(formFields.value, change.keyPath);
+                    if (change.keyPath[0] === 'startCity') change._prevLocation = formFields.value.startLocation;
+                    if (change.keyPath[0] === 'endCity') change._prevLocation = formFields.value.endLocation;
                     setByPath(formFields.value, change.keyPath, v);
+                    syncLocationLabel(formFields.value, change.keyPath);
                     change._formApplied = true;
                     triggerToast(`已套用「${change.field}」最新值`, 'success');
                 };
                 const revertFieldChange = (change) => {
                     setByPath(formFields.value, change.keyPath, change._prevValue);
-                    change._formApplied = false; delete change._prevValue;
+                    if (change._prevLocation !== undefined) {
+                        if (change.keyPath[0] === 'startCity') formFields.value.startLocation = change._prevLocation;
+                        if (change.keyPath[0] === 'endCity') formFields.value.endLocation = change._prevLocation;
+                    }
+                    change._formApplied = false; delete change._prevValue; delete change._prevLocation;
                     triggerToast(`已復原「${change.field}」`, 'info');
                 };
                 // 儲存時：表單內已套用的異動標記為 applied
                 const finalizeFormChanges = (f) => {
                     (f?.apiLogs || []).forEach(log => (log.changes || []).forEach(c => {
                         if (c._formApplied) { c.applied = true; c.newValue = c.jsonValue ?? c.apiValue; }
-                        delete c._formApplied; delete c._prevValue;
+                        delete c._formApplied; delete c._prevValue; delete c._prevLocation;
                     }));
                 };
 
                 const jumpToChange = (change) => {
                     const p = change.keyPath || [];
                     if (!isMappedPath(p)) return;
-                    if (p[0] === 'rooms') { formTab.value = 2; formRoomTab.value = p[1]; }
+                    if (p[0] === 'startCity' || p[0] === 'endCity') { formTab.value = 1; }
+                    else if (p[0] === 'rooms') { formTab.value = 2; formRoomTab.value = p[1]; }
                     else if (p[0] === 'dailySchedules') { formTab.value = 3; }
                     setTimeout(() => {
                         const el = document.querySelector(`[data-change-key="${pathKey(p)}"]`);
@@ -3358,7 +3410,7 @@
                     openGeoQuickAdd, onGeoQuickAddSubmit, confirmQuickManualConfirmToggle,
 
                     isFormDirty, allFormChanges, pendingFormChanges, unmappedFormChanges, getPathChanges, hasPendingChange,
-                    tabPendingCount, roomPendingCount, applyFieldChange, revertFieldChange, isChangeDone, jumpToChange, confirmBlacklistFromForm,
+                    tabPendingCount, roomPendingCount, applyFieldChange, revertFieldChange, isChangeDone, jumpToChange, confirmBlacklistFromForm, fmtChangeValue,
 
                     isRegionManageModalVisible, isRegionEditModalVisible, currentEditingRegion, regionEditForm,
                     openRegionManageModal, openRegionEditModal, saveRegion, deleteRegion, regionManageColumns
@@ -3371,10 +3423,10 @@
         
         // 欄位下方的 API 異動條
         app.component('field-change', {
-            props: { change: Object, time: String, showField: Boolean },
+            props: { change: Object, time: String, showField: Boolean, formatter: Function },
             emits: ['apply', 'revert'],
             methods: {
-                fmt(v) { if (v === null || v === undefined || v === '') return '—'; return `${this.change.prefix ? this.change.prefix + ' ' : ''}${typeof v === 'number' ? v.toLocaleString() : v}`; }
+                fmt(v) { if (this.formatter) return this.formatter(this.change, v); if (v === null || v === undefined || v === '') return '—'; return `${this.change.prefix ? this.change.prefix + ' ' : ''}${typeof v === 'number' ? v.toLocaleString() : v}`; }
             },
             computed: {
                 state() { return this.change.applied ? 'done' : (this.change._formApplied ? 'applied' : 'pending'); },
@@ -3389,11 +3441,11 @@
                         </span>
                         <span v-if="time" class="text-[10px] text-slate-400 font-medium">{{ time }} 收到</span>
                     </div>
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-slate-500">上架值 <b class="text-slate-700">{{ fmt(change.oldValue) }}</b></span>
+                    <div class="flex gap-2 flex-wrap" :class="change.inputType === 'text' ? 'flex-col items-stretch' : 'items-center'">
+                        <span class="text-slate-500 whitespace-pre-wrap break-words">上架值 <b class="text-slate-700">{{ fmt(change.oldValue) }}</b></span>
                         <span class="text-slate-300">➔</span>
-                        <span class="text-slate-500">最新 Json <b class="text-red-600">{{ fmt(json) }}</b></span>
-                        <span class="ml-auto">
+                        <span class="text-slate-500 whitespace-pre-wrap break-words">最新 Json <b class="text-red-600">{{ fmt(json) }}</b></span>
+                        <span :class="change.inputType === 'text' ? 'self-end' : 'ml-auto'">
                             <a-button v-if="state === 'pending'" type="primary" size="small" @click.stop="$emit('apply')">套用</a-button>
                             <a-button v-else-if="state === 'applied'" size="small" @click.stop="$emit('revert')">復原</a-button>
                         </span>
