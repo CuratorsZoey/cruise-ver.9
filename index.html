@@ -126,10 +126,33 @@
             font-weight: 700;
             color: #ef4444;
         }
+            .no-expand > .ant-collapse-header { cursor: default !important; }
     </style>
 </head>
 <body class="h-full overflow-hidden text-slate-800">
     <div id="app" class="h-full flex flex-col" v-cloak>
+        <a-modal v-model:visible="applyModalVisible" :title="applyTarget && isNewRoute(applyTarget) ? '確認建立航線' : '確認套用異動'" :ok-text="applyTarget && isNewRoute(applyTarget) ? '確認建立' : '確認套用'" cancel-text="取消" :width="660" @ok="confirmApply">
+            <template v-if="applyTarget">
+                <div class="mb-3 text-sm text-slate-600"><b class="font-mono">{{ applyTarget.code }}</b>　{{ applyTarget.startLocation }} ➔ {{ applyTarget.endLocation }}・{{ applyTarget.days }} 天</div>
+                <div v-if="isNewRoute(applyTarget)" class="text-sm bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
+                    <div>品牌／船名：{{ applyTarget.brand }}／{{ applyTarget.shipName }}</div>
+                    <div>出發期間：{{ applyTarget.startDate }} ~ {{ applyTarget.endDate }}</div>
+                    <div>艙房類型：{{ Object.keys(applyTarget.rooms || {}).length }} 種</div>
+                    <div class="text-blue-700 font-medium pt-1">確認後將正式建立航線主檔，並移至「已讀」。</div>
+                </div>
+                <div v-else>
+                    <div class="text-xs text-slate-500 mb-2">已勾選 {{ applyItems.filter(i => i.checked).length }} / {{ applyItems.length }} 個欄位（取消勾選的欄位不會套用，可形成「部分套用」）</div>
+                    <div v-if="applyItems.length === 0" class="text-sm text-slate-500">所有欄位皆已個別套用，按確認即完成。</div>
+                    <div v-for="(item, i) in applyItems" :key="i" class="flex items-center gap-3 p-2.5 border border-slate-200 rounded-lg mb-2 text-sm">
+                        <a-checkbox v-model:checked="item.checked"></a-checkbox>
+                        <span class="font-bold flex-1">{{ item.change.field }}</span>
+                        <span class="text-slate-500">{{ item.change.prefix || '' }} {{ item.change.oldValue.toLocaleString() }}</span>
+                        <span class="text-slate-300">➔</span>
+                        <span class="font-bold text-red-600">{{ item.change.prefix || '' }} {{ (item.change.jsonValue || item.change.apiValue).toLocaleString() }}</span>
+                    </div>
+                </div>
+            </template>
+        </a-modal>
         
         <!-- 頂部頁首 Navbar -->
         <header class="h-16 bg-white border-b border-slate-100 px-6 flex items-center justify-between z-10 shadow-sm flex-shrink-0">
@@ -573,7 +596,7 @@
                         
                         <!-- 控制面板 -->
                         <div class="flex items-center justify-between bg-white p-4 px-6 rounded-2xl shadow-sm border border-slate-100 sticky top-0 z-10">
-                            <button @click="currentView = 'list'" class="flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-colors font-medium">
+                            <button @click="backToList" class="flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-colors font-medium">
                                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                                 <span class="text-base">返回優惠列表</span>
                             </button>
@@ -950,8 +973,8 @@
                                 目前無符合條件的郵輪航線資料
                             </div>
 
-                            <a-collapse v-else v-model:active-key="expandedKeys" ghost>
-                                <a-collapse-panel v-for="record in filteredData" :key="record.key" class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-4">
+                            <a-collapse v-else :active-key="expandedKeys" @change="onCollapseChange" ghost>
+                                <a-collapse-panel v-for="record in filteredData" :key="record.key" class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-4" :class="{'no-expand': !isExpandable(record)}">
                                     <template #header>
                                         <div class="flex flex-col sm:flex-row sm:items-center justify-between w-full select-none gap-3 relative pr-8">
                                             <div class="flex items-center gap-3 flex-wrap">
@@ -982,10 +1005,17 @@
                                                     <span class="bg-blue-55 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded text-[10px] font-bold">{{ getRegionLabel(record.adminRegion) }}</span>
                                                 </div>
 
-                                                <!-- 快速進入按鈕 -->
-                                                <a-button v-if="sidebarSelection === 'approve'" type="primary" size="small" @click.stop="openEditForm(record)" class="shadow-sm z-10 relative ml-2">
-                                                    進入查看
-                                                </a-button>
+                                                <!-- 列表操作按鈕 -->
+                                                <div v-if="sidebarSelection === 'approve'" @click.stop class="flex items-center gap-1.5 ml-2 z-10 relative flex-wrap">
+                                                    <template v-if="record.approvalStatus === 'pending'">
+                                                        <a-button size="small" @click="markAsRead(record)">✓ 已讀</a-button>
+                                                        <a-button size="small" @click="confirmBlacklist(record)">黑名單</a-button>
+                                                        <a-button size="small" type="primary" class="bg-emerald-600 hover:bg-emerald-700 border-none" @click="openApplyModal(record)">套用</a-button>
+                                                    </template>
+                                                    <a-button v-if="record.approvalStatus === 'archived' && record.apiLogs?.length > 0 && !record.isAppliedInRead" size="small" type="primary" class="bg-emerald-600 hover:bg-emerald-700 border-none" @click="openApplyModal(record)">套用</a-button>
+                                                    <a-button v-if="record.approvalStatus === 'blacklisted'" size="small" type="primary" class="bg-emerald-600 hover:bg-emerald-700 border-none" @click="reviveBlacklistedRoute(record)">🚀 復活並重新導入 JSON</a-button>
+                                                    <a-button v-if="record.approvalStatus !== 'blacklisted'" size="small" type="primary" @click="enterManage(record)">進入航線管理</a-button>
+                                                </div>
 
                                                 <div v-if="sidebarSelection === 'management' && (record.approvalStatus === 'published' || record.approvalStatus === 'offline')" @click.stop class="ml-3 z-10 relative">
                                                     <a-switch :checked="record.approvalStatus === 'published'" @change="(checked) => handleTogglePublish(record, checked)" checked-children="上架" un-checked-children="下架"></a-switch>
@@ -998,6 +1028,7 @@
                                                     <a-tag v-if="record.isAppliedInRead" color="success" class="m-0 border-emerald-300 bg-emerald-50 text-emerald-700 flex items-center gap-1.5 font-bold shadow-sm px-2.5 py-0.5 rounded-md">
                                                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>已套用 (已同步至主檔)
                                                     </a-tag>
+                                                    <a-tag v-else-if="record.appliedPartial" color="processing" class="m-0 flex items-center gap-1.5 font-bold shadow-sm px-2.5 py-0.5 rounded-md">部分套用 ({{ record.appliedCount }}/{{ record.appliedTotal }} 欄位)</a-tag>
                                                     <a-tag v-else color="warning" class="m-0 border-amber-300 bg-amber-50 text-amber-700 flex items-center gap-1.5 font-bold shadow-sm px-2.5 py-0.5 rounded-md">
                                                         <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>僅已讀 (未套用變更)
                                                     </a-tag>
@@ -1012,7 +1043,7 @@
                                                 </div>
                                             </div>
 
-                                            <div class="absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                            <div v-if="isExpandable(record)" class="absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                                                 <svg v-if="expandedKeys.includes(record.key)" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>
                                                 <svg v-else class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                                             </div>
@@ -1063,7 +1094,8 @@
                                                                             <div class="text-[10px] font-bold text-red-500 mb-0.5">最新 Json 檔值</div>
                                                                             <div class="font-extrabold text-red-600 text-xs">{{ change.prefix || '' }} {{ (change.jsonValue || change.apiValue).toLocaleString() }}</div>
                                                                         </div>
-                                                                        <button v-if="record.approvalStatus !== 'archived'" @click.stop="applyJsonValueDirectly(record, change)" class="bg-blue-500 hover:bg-blue-600 text-white font-bold text-[10px] px-1.5 py-0.5 rounded transition-colors self-center">套用</button>
+                                                                        <span v-if="change.applied" class="text-[10px] font-bold text-emerald-600 self-center">✓ 已套用</span>
+                                                                        <button v-else-if="record.approvalStatus !== 'archived'" @click.stop="applyJsonValueDirectly(record, change)" class="bg-blue-500 hover:bg-blue-600 text-white font-bold text-[10px] px-1.5 py-0.5 rounded transition-colors self-center">套用</button>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1085,22 +1117,18 @@
                                             </div>
                                         </div>
 
-                                        <div class="flex gap-2 w-full justify-end pt-3 mt-2 border-t border-slate-200/60 border-dashed">
+                                        <div v-if="sidebarSelection === 'management' || record.approvalStatus === 'archived'" class="flex gap-2 w-full justify-end pt-3 mt-2 border-t border-slate-200/60 border-dashed">
                                             <div class="flex gap-2">
-                                                <a-button v-if="record.approvalStatus === 'pending'" size="small" type="dashed" class="border-indigo-500 text-indigo-600 hover:bg-indigo-50" @click.stop="markAsRead(record)">
-                                                    ✓ Read (設為已讀)
-                                                </a-button>
+                                                
 
-                                                <a-button v-if="record.approvalStatus === 'blacklisted'" type="primary" size="small" class="bg-emerald-600 hover:bg-emerald-700 border-none flex items-center gap-1 shadow-sm" @click.stop="reviveBlacklistedRoute(record)">
-                                                    🚀 復活並重新導入 JSON
-                                                </a-button>
+                                                
 
                                                 <a-button v-if="record.approvalStatus === 'published' || record.approvalStatus === 'archived' || record.approvalStatus === 'offline' || record.approvalStatus === 'draft'" 
                                                           size="small" @click.stop="simulateApiUpdate(record)">
                                                     模擬接收 API 異動
                                                 </a-button>
 
-                                                <a-button type="primary" size="small" @click.stop="openEditForm(record)" class="shadow-sm">
+                                                <a-button v-if="sidebarSelection === 'management'" type="primary" size="small" @click.stop="openEditForm(record)" class="shadow-sm">
                                                     {{ record.approvalStatus === 'pending' || (record.apiLogs && record.apiLogs.length > 0) ? '查看異動' : '編輯詳情' }}
                                                 </a-button>
                                             </div>
@@ -1135,20 +1163,21 @@
                                     翻譯中文
                                 </a-button>
 
-                                <a-button v-if="editingRecord?.approvalStatus !== 'blacklisted'" @click="handleSave('blacklisted')" class="flex items-center gap-1 border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-100">
+                                <a-button v-if="editingRecord?.approvalStatus !== 'blacklisted'" @click="confirmBlacklistFromForm" class="flex items-center gap-1 border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-100">
                                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                                     加入黑名單 (清空通知)
                                 </a-button>
 
-                                <a-button v-if="editingRecord?.approvalStatus === 'pending'" type="primary" danger @click="handleSave('archived', false)" class="flex items-center gap-1">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                    設為已讀
-                                </a-button>
+                                <a-tooltip v-if="editingRecord?.approvalStatus === 'pending' || editingRecord?.approvalStatus === 'archived'" :title="isFormDirty ? '已編輯欄位，無法設為已讀。請先復原所有變更，或改用儲存。' : ''">
+                                    <span class="inline-block">
+                                        <a-button type="primary" danger :disabled="isFormDirty" @click="handleSave('archived', false)" class="flex items-center gap-1">
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            設為已讀
+                                        </a-button>
+                                    </span>
+                                </a-tooltip>
 
-                                <!-- 儲存草稿: 僅在航線管理中顯示 -->
-                                <a-button v-if="sidebarSelection === 'management' && editingRecord?.approvalStatus !== 'published' && editingRecord?.approvalStatus !== 'offline' && editingRecord?.approvalStatus !== 'archived'" @click="handleSave('draft')" class="flex items-center gap-1.5">
-                                    儲存草稿
-                                </a-button>
+                                
                                 
                                 <!-- 編輯異動: 僅在航線異動通知(Approve)中顯示，點擊後會掉到航線管理 -->
                                 <a-button v-if="sidebarSelection === 'approve' && editingRecord?.approvalStatus !== 'published' && editingRecord?.approvalStatus !== 'offline'" type="primary" @click="handleEditChanges" class="flex items-center gap-1.5 shadow-md bg-blue-600 hover:bg-blue-700 border-none">
@@ -1159,99 +1188,43 @@
                                 <!-- 確認後上架: 僅在航線管理(Management)中顯示 -->
                                 <a-button v-if="sidebarSelection === 'management' && editingRecord?.approvalStatus !== 'published' && editingRecord?.approvalStatus !== 'offline'" type="primary" @click="handleSave('published')" class="flex items-center gap-1.5 shadow-md bg-emerald-600 hover:bg-emerald-700 border-none">
                                     <template #icon><svg class="w-4 h-4 inline-block -mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></template>
-                                    確認後上架
+                                    儲存並上架
                                 </a-button>
                             </div>
                         </div>
 
-                        <!-- 頂部 API 異動差異核對 -->
-                        <div v-if="editingRecord?.apiLogs?.length > 0 && editingRecord?.approvalStatus !== 'blacklisted'" class="space-y-4">
-                            <a-alert v-for="log in editingRecord.apiLogs" :key="log.id"
-                                     type="warning" show-icon
-                                     class="rounded-2xl border-[#e8dfc4] bg-[#faf6e9] p-5 shadow-sm"
-                                     style="border-width: 1px;">
-                                <template #message>
-                                    <span class="font-extrabold text-[#a8701a] text-base">系統偵測到以下 API 資料異動，請確認或點選「套用」按鈕帶入數據：</span>
-                                </template>
-                                <template #description>
-                                    <div class="relative pl-6 border-l border-slate-200 mt-4">
-                                        <div class="relative">
-                                            <span class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full border-2 border-white" :class="log.type.includes('價格') ? 'bg-[#ef4444]' : 'bg-[#3b82f6]'"></span>
-
-                                            <div class="flex flex-col gap-1 text-slate-800">
-                                                <div class="flex items-center gap-2 flex-wrap mb-2">
-                                                    <span class="font-extrabold text-sm" :class="log.type.includes('價格') ? 'text-red-600' : 'text-blue-600'">
-                                                        [{{ log.type }}]
-                                                    </span>
-                                                    <span class="font-bold text-slate-800 text-sm">{{ log.message }}</span>
-                                                </div>
-
-                                                <!-- 差異比對面板 (四欄式，帶有套用按鈕) -->
-                                                <div v-if="log.changes && log.changes.length > 0" class="mt-2 space-y-4">
-                                                    <div v-for="(change, idx) in log.changes" :key="idx" class="bg-white rounded-xl overflow-hidden border border-[#e8dfc4] shadow-sm">
-                                                        <div class="bg-slate-50 px-4 py-2 border-b border-[#e8dfc4] font-bold text-slate-700 text-sm flex items-center gap-2">
-                                                            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                                                            異動欄位：{{ change.field }}
-                                                        </div>
-                                                        <div class="grid grid-cols-1 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 text-sm">
-                                                            <div class="p-4 flex flex-col justify-center">
-                                                                <span class="text-xs font-bold text-slate-400 mb-1">目前上架值</span>
-                                                                <span class="text-slate-600 font-medium">{{ change.prefix || '' }} {{ change.oldValue.toLocaleString() }}</span>
-                                                            </div>
-                                                            <div class="p-4 flex flex-col justify-center bg-slate-100/50">
-                                                                <span class="text-xs font-bold text-slate-500 mb-1">前次 Scan 值</span>
-                                                                <span class="text-slate-500 font-medium">{{ change.prefix || '' }} {{ (change.prevScanValue || change.oldValue).toLocaleString() }}</span>
-                                                            </div>
-                                                            <div class="p-4 flex flex-col justify-center bg-blue-50/30">
-                                                                <span class="text-xs font-bold text-blue-500 mb-1">本次 Scan 值</span>
-                                                                <span class="font-bold text-blue-700">{{ change.prefix || '' }} {{ change.apiValue.toLocaleString() }}</span>
-                                                            </div>
-                                                            <div class="p-4 flex flex-col justify-center bg-amber-50/50 relative group">
-                                                                <span class="text-xs font-bold text-red-500 mb-2 block">最新 Json 檔值 (可一鍵套用)</span>
-                                                                <div class="flex items-center gap-2">
-                                                                    <span class="font-extrabold text-red-600 mr-auto">{{ change.prefix || '' }} {{ (change.jsonValue || change.apiValue).toLocaleString() }}</span>
-                                                                    <a-button v-if="editingRecord?.approvalStatus !== 'archived'" type="primary" size="small" class="bg-blue-600 hover:bg-blue-700" @click="applyLatestJsonToInput(change)">
-                                                                        套用最新值
-                                                                    </a-button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        <div class="bg-red-50/20 p-4 border-t border-[#e8dfc4] flex items-center justify-between">
-                                                            <span class="text-xs font-extrabold text-slate-700">✍️ 編輯實際上架資料：</span>
-                                                            <div class="inline-editable-input w-2/3 sm:w-1/3">
-                                                                <a-input-number v-if="change.inputType === 'number'" 
-                                                                                v-model:value="change.newValue" 
-                                                                                @change="syncApiChangeToForm(change)" 
-                                                                                :formatter="value => change.prefix ? `${change.prefix} ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : value" 
-                                                                                :parser="value => value.replace(/\$\s?|(,*)/g, '').replace(/USD\s?/g, '')"
-                                                                                class="w-full border-red-200 focus:border-red-500 bg-white font-extrabold" size="middle"></a-input-number>
-                                                                                
-                                                                <a-input v-else v-model:value="change.newValue" 
-                                                                         @change="syncApiChangeToForm(change)"
-                                                                         class="w-full font-bold border-red-200 focus:border-red-500 bg-white text-red-600" size="middle" ></a-input>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </template>
-                            </a-alert>
+                        <!-- API 異動摘要列（異動明細已移至各欄位下方） -->
+                        <div v-if="allFormChanges.length > 0" class="bg-white rounded-2xl border border-amber-200 shadow-sm p-5 px-6 relative overflow-hidden">
+                            <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-400"></div>
+                            <div class="flex items-center justify-between flex-wrap gap-2">
+                                <span class="font-extrabold text-amber-700 text-sm">⚠️ 本航線有 {{ allFormChanges.length }} 項 API 異動，已套用 {{ allFormChanges.length - pendingFormChanges.length }} 項</span>
+                                <span class="text-xs text-slate-400 font-medium">異動已顯示在對應欄位下方，點擊項目可直接跳轉</span>
+                            </div>
+                            <div class="flex flex-wrap gap-2 mt-3">
+                                <button v-for="(c, i) in allFormChanges" :key="i" type="button" @click="jumpToChange(c)"
+                                        class="text-xs font-bold px-2.5 py-1 rounded-full border transition-colors"
+                                        :class="isChangeDone(c) ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'">
+                                    {{ isChangeDone(c) ? '✓' : '●' }} {{ c.field }}
+                                </button>
+                            </div>
+                            <div v-if="unmappedFormChanges.length" class="mt-4 pt-4 border-t border-dashed border-slate-200 space-y-2">
+                                <div class="text-xs font-bold text-slate-500">其他異動（表單中無對應欄位）</div>
+                                <field-change v-for="fc in unmappedFormChanges" :key="fc.change.field" :change="fc.change" :time="fc.time" show-field
+                                              @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
+                            </div>
                         </div>
 
                         <!-- 表單主編輯區 -->
                         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                             <div class="bg-white border-b border-slate-100 px-8 flex gap-8">
                                 <button @click="formTab = 1" class="py-5 relative text-sm sm:text-base font-semibold tracking-wide transition-all focus:outline-none flex items-center gap-1.5" :class="formTab === 1 ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'">
-                                    <span>1. 航線基本資訊</span><span v-if="formTab === 1" class="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-600 rounded-full"></span>
+                                    <span>1. 航線基本資訊</span><span v-if="tabPendingCount(1) > 0" class="bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">{{ tabPendingCount(1) }}</span><span v-if="formTab === 1" class="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-600 rounded-full"></span>
                                 </button>
                                 <button @click="formTab = 2" class="py-5 relative text-sm sm:text-base font-semibold tracking-wide transition-all focus:outline-none flex items-center gap-1.5" :class="formTab === 2 ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'">
-                                    <span>2. 房型預訂與定價</span><span v-if="formTab === 2" class="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-600 rounded-full"></span>
+                                    <span>2. 房型預訂與定價</span><span v-if="tabPendingCount(2) > 0" class="bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">{{ tabPendingCount(2) }}</span><span v-if="formTab === 2" class="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-600 rounded-full"></span>
                                 </button>
                                 <button @click="formTab = 3" class="py-5 relative text-sm sm:text-base font-semibold tracking-wide transition-all focus:outline-none flex items-center gap-1.5" :class="formTab === 3 ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'">
-                                    <span>3. 每日行程規劃</span><span v-if="formTab === 3" class="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-600 rounded-full"></span>
+                                    <span>3. 每日行程規劃</span><span v-if="tabPendingCount(3) > 0" class="bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">{{ tabPendingCount(3) }}</span><span v-if="formTab === 3" class="absolute bottom-0 left-0 right-0 h-[3px] bg-blue-600 rounded-full"></span>
                                 </button>
                             </div>
 
@@ -1490,7 +1463,12 @@
                                 <!-- 步驟二：房型與定價 -->
                                 <div v-if="formTab === 2" class="w-full">
                                     <a-tabs v-model:active-key="formRoomTab" tab-position="left" class="w-full">
-                                        <a-tab-pane v-for="rKey in roomKeys" :key="rKey" :tab="roomLabelMap[rKey]">
+                                        <a-tab-pane v-for="rKey in roomKeys.filter(k => formFields.rooms && formFields.rooms[k])" :key="rKey">
+                                            <template #tab>
+                                                <span class="inline-flex items-center gap-1.5">{{ roomLabelMap[rKey] }}
+                                                    <span v-if="roomPendingCount(rKey) > 0" class="bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center">{{ roomPendingCount(rKey) }}</span>
+                                                </span>
+                                            </template>
                                             <div class="p-4 pl-8 max-w-4xl space-y-6">
                                                 <div class="bg-white p-5 px-6 rounded-2xl border border-slate-100 flex justify-between items-center shadow-sm relative overflow-hidden">
                                                     <div class="absolute top-0 left-0 w-1.5 h-full bg-slate-200"></div>
@@ -1515,7 +1493,10 @@
                                                             <a-input-number v-model:value.number="formFields.rooms[rKey].originalPrice" 
                                                                             :formatter="value => `USD $ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')" 
                                                                             :parser="value => value.replace(/\$\s?|(,*)/g, '').replace(/USD\s?/g, '')"
-                                                                            size="large" class="font-mono rounded-xl text-slate-600 font-bold w-full" />
+                                                                            size="large" class="font-mono rounded-xl text-slate-600 font-bold w-full" :class="hasPendingChange(['rooms', rKey, 'originalPrice']) ? '!border-amber-400 !bg-amber-50' : ''"></a-input-number>
+                                                            <field-change v-for="fc in getPathChanges(['rooms', rKey, 'originalPrice'])" :key="fc.change.field"
+                                                                          :change="fc.change" :time="fc.time"
+                                                                          @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
                                                         </div>
                                                     </div>
                                                     <div class="space-y-4">
@@ -1524,7 +1505,10 @@
                                                             <a-input-number v-model:value.number="formFields.rooms[rKey].discountPrice" 
                                                                             :formatter="value => `USD $ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')" 
                                                                             :parser="value => value.replace(/\$\s?|(,*)/g, '').replace(/USD\s?/g, '')"
-                                                                            size="large" class="font-mono rounded-xl text-red-600 font-bold w-full" />
+                                                                            size="large" class="font-mono rounded-xl text-red-600 font-bold w-full" :class="hasPendingChange(['rooms', rKey, 'discountPrice']) ? '!border-amber-400 !bg-amber-50' : ''"></a-input-number>
+                                                            <field-change v-for="fc in getPathChanges(['rooms', rKey, 'discountPrice'])" :key="fc.change.field"
+                                                                          :change="fc.change" :time="fc.time"
+                                                                          @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1566,17 +1550,22 @@
                                             </div>
                                             <div class="space-y-1.5 md:col-span-2">
                                                 <label class="text-xs font-bold text-slate-500">靠港時間</label>
-                                                <a-input v-model:value="day.dockTime" placeholder="例如：17:00" class="rounded-lg font-mono text-blue-600 font-bold" :disabled="day.isSeaDay" ></a-input>
+                                                <a-input v-model:value="day.dockTime" placeholder="例如：17:00" class="rounded-lg font-mono text-blue-600 font-bold" :disabled="day.isSeaDay" :class="hasPendingChange(['dailySchedules', index, 'dockTime']) ? '!border-amber-400 !bg-amber-50' : ''"></a-input>
                                             </div>
                                             <div class="space-y-1.5 md:col-span-2">
                                                 <label class="text-xs font-bold text-slate-500">離港時間</label>
-                                                <a-input v-model:value="day.departureTime" placeholder="例如：20:00" class="rounded-lg font-mono text-blue-600 font-bold" :disabled="day.isSeaDay" ></a-input>
+                                                <a-input v-model:value="day.departureTime" placeholder="例如：20:00" class="rounded-lg font-mono text-blue-600 font-bold" :disabled="day.isSeaDay" :class="hasPendingChange(['dailySchedules', index, 'departureTime']) ? '!border-amber-400 !bg-amber-50' : ''"></a-input>
                                             </div>
                                             <div class="space-y-1.5 md:col-span-3 pb-2 flex items-center">
                                                 <a-checkbox v-model:checked="day.isSeaDay" @change="handleSeaDayChange(day)">
                                                     <span class="font-extrabold text-xs tracking-wide text-slate-500">🌊 標記為海上日</span>
                                                 </a-checkbox>
                                             </div>
+                                        </div>
+                                        <div v-if="getPathChanges(['dailySchedules', index, 'dockTime']).length || getPathChanges(['dailySchedules', index, 'departureTime']).length" class="grid grid-cols-1 md:grid-cols-2 gap-3 -mt-2">
+                                            <field-change v-for="fc in [...getPathChanges(['dailySchedules', index, 'dockTime']), ...getPathChanges(['dailySchedules', index, 'departureTime'])]" :key="fc.change.field"
+                                                          :change="fc.change" :time="fc.time" show-field
+                                                          @apply="applyFieldChange(fc.change)" @revert="revertFieldChange(fc.change)"></field-change>
                                         </div>
 
                                         <div v-if="!day.isSeaDay" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2">
@@ -1673,34 +1662,7 @@
                             </div>
                         </div>
 
-                        <!-- 歷史審核與異動紀錄 -->
-                        <div v-if="formFields?.historyLogs && formFields.historyLogs.length > 0" class="bg-slate-50 border border-slate-200 rounded-xl relative overflow-hidden shadow-sm">
-                            <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-slate-700"></div>
-                            <div class="p-6 pl-8">
-                                <div class="flex items-center gap-2 mb-6">
-                                    <svg class="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <h3 class="text-slate-800 font-bold text-base tracking-wide">歷史審核與異動紀錄</h3>
-                                </div>
-
-                                <div class="space-y-6">
-                                    <div v-for="(log, idx) in formFields.historyLogs" :key="idx" class="relative pl-8">
-                                        <!-- Bullet -->
-                                        <div class="absolute left-0 top-1 w-3.5 h-3.5 rounded-full border-[2.5px] border-blue-500 bg-transparent z-10 flex items-center justify-center"></div>
-                                        
-                                        <div class="flex items-center gap-3 mb-3">
-                                            <span class="font-bold text-blue-600 text-sm">[{{ log.action }}]</span>
-                                            <span class="text-slate-400 text-sm font-medium">{{ log.time }}</span>
-                                            <span class="bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 rounded text-xs font-bold">{{ log.operator || '系統操作' }}</span>
-                                        </div>
-                                        <div class="bg-white border border-slate-200 rounded-lg p-4 text-sm text-slate-700 shadow-sm mt-1 leading-relaxed">
-                                            {{ log.details }}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- 歷史審核與異動紀錄：UI 已移除，historyLogs 資料仍持續寫入 -->
 
                     </div>
 
@@ -1941,7 +1903,7 @@
                 const archivedStatusFilter = ref('all'); 
                 const publishStatusFilter = ref('all'); 
                 const dateFilter = ref(''); 
-                const expandedKeys = ref(['2-1', '2-2', '4', '3-archived']); 
+                const expandedKeys = ref(['2-1', '5', '3-archived']); 
                 
                 const formTab = ref(1); 
                 const formRoomTab = ref('inside'); 
@@ -2650,7 +2612,6 @@
 
                 const tabManagement = [
                     { key: 'active', label: '有效航線' },
-                    { key: 'draft', label: '草稿' },
                     { key: 'expired', label: '已過期航線' }
                 ];
                 
@@ -2721,6 +2682,29 @@
                         rooms: { inside: { nameZh: '標準內艙房', discountPrice: 750, originalPrice: 900, isFull: false } }, dailySchedules: [], apiLogs: [], historyLogs: []
                     },
                     {
+                        key: '5', approvalStatus: 'pending', brand: 'MSC 地中海郵輪', shipName: '地中海榮耀號 MSC Bellissima', code: 'EX20261005KEEYOK',
+                        days: 6, startDate: '2026-10-05', endDate: '2026-10-10', startCountryId: 5, startCityId: 4, endCountryId: 1, endCityId: 5, startLocation: '基隆', endLocation: '橫濱', startCity: 'keelung', endCity: 'yokohama', adminRegion: 5,
+                        rooms: { inside: { nameZh: '標準內艙房', discountPrice: 1200, originalPrice: 1400, isFull: false }, oceanview: { nameZh: '經典海景房', discountPrice: 1450, originalPrice: 1650, isFull: false }, balcony: { nameZh: '豪華陽台房', discountPrice: 1800, originalPrice: 2100, isFull: false }, suite: { nameZh: '頂級奢華套房', discountPrice: 2600, originalPrice: 3000, isFull: false } },
+                        dailySchedules: [{ date: '2026-10-05', port: 'keelung', dockTime: '16:00', departureTime: '20:00', description: '於基隆港辦理登船。', isSeaDay: false, imageUrl: null }],
+                        apiLogs: [
+                            { id: 'log_m1', time: '2026/11/09 10:15', type: '價格異動', message: 'API 同步：4 種艙房優惠價同時調整', changes: [
+                                { field: '內艙房 優惠價', oldValue: 1200, prevScanValue: 1250, apiValue: 1350, jsonValue: 1350, newValue: 1350, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'inside', 'discountPrice'] },
+                                { field: '海景房 優惠價', oldValue: 1450, prevScanValue: 1450, apiValue: 1580, jsonValue: 1580, newValue: 1580, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'oceanview', 'discountPrice'] },
+                                { field: '陽台房 優惠價', oldValue: 1800, prevScanValue: 1850, apiValue: 1990, jsonValue: 1990, newValue: 1990, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'balcony', 'discountPrice'] },
+                                { field: '套房 優惠價', oldValue: 2600, prevScanValue: 2600, apiValue: 2880, jsonValue: 2880, newValue: 2880, inputType: 'number', prefix: 'USD $', keyPath: ['rooms', 'suite', 'discountPrice'] }
+                            ] },
+                            { id: 'log_m2', time: '2026/11/09 10:15', type: '行程異動', message: 'API 同步：第 1 天靠港與離港時間調整', changes: [
+                                { field: '第1天 靠港時間', oldValue: '16:00', prevScanValue: '16:00', apiValue: '15:00', jsonValue: '15:00', newValue: '15:00', inputType: 'string', prefix: '', keyPath: ['dailySchedules', 0, 'dockTime'] },
+                                { field: '第1天 離港時間', oldValue: '20:00', prevScanValue: '20:00', apiValue: '21:30', jsonValue: '21:30', newValue: '21:30', inputType: 'string', prefix: '', keyPath: ['dailySchedules', 0, 'departureTime'] }
+                            ] }
+                        ], historyLogs: []
+                    },
+                    {
+                        key: '6', approvalStatus: 'pending', brand: 'Royal Caribbean 皇家加勒比', shipName: '海洋讚禮號 Ovation of the Seas', code: 'OV20261020KEEOKA',
+                        days: 5, startDate: '2026-10-20', endDate: '2026-10-24', startCountryId: 5, startCityId: 4, endCountryId: 1, endCityId: 1, startLocation: '基隆', endLocation: '沖繩', startCity: 'keelung', endCity: 'sea', adminRegion: 5,
+                        rooms: { inside: { nameZh: '標準內艙房', discountPrice: 680, originalPrice: 800, isFull: false } }, dailySchedules: [], apiLogs: [], historyLogs: []
+                    },
+                    {
                         key: '3-archived', approvalStatus: 'archived', isAppliedInRead: false, brand: 'Costa 歌詩達郵輪', shipName: '莎倫娜號 Costa Serena', code: 'CS20260715OKA',
                         days: 5, startDate: '2026-07-15', endDate: '2026-07-19', startCountryId: 5, startCityId: 4, endCountryId: 1, endCityId: 1, startLocation: '基隆', endLocation: '沖繩', startCity: 'keelung', endCity: 'sea', adminRegion: 5,
                         rooms: { inside: { nameZh: '標準內艙房', discountPrice: 500, originalPrice: 600, isFull: false } }, dailySchedules: [],
@@ -2762,7 +2746,7 @@
                     triggerToast(`已套用最新 Json 檔值: ${change.newValue}`);
                 };
 
-                const applyJsonValueDirectly = (record, change) => {
+                const applyJsonValueDirectly = (record, change, silent = false) => {
                     change.newValue = change.jsonValue || change.apiValue;
                     let obj = record;
                     for (let i = 0; i < change.keyPath.length - 1; i++) {
@@ -2772,7 +2756,8 @@
                         obj = obj[change.keyPath[i]];
                     }
                     obj[change.keyPath[change.keyPath.length - 1]] = change.newValue;
-                    triggerToast(`已成功套用最新 Json 檔值！`);
+                    change.applied = true;
+                    if (!silent) triggerToast(`已成功套用最新 Json 檔值！`);
                 };
 
                 const isDateInvalid = computed(() => {
@@ -2842,7 +2827,53 @@
                     }
                 };
 
-                const markAsRead = (record) => { record.approvalStatus = 'archived'; record.isAppliedInRead = false; triggerToast(`已將航線 ${record.code} 設為已讀`); };
+                const clone = (o) => JSON.parse(JSON.stringify(o));
+                const restoreRecord = (snap) => { const i = dataSource.value.findIndex(r => r.key === snap.key); if (i > -1) dataSource.value[i] = snap; };
+                const toastWithUndo = (text, undoFn) => {
+                    const key = 'undo_' + Date.now();
+                    antd.message.success({ key, duration: 6, content: Vue.h('span', {}, [text + '　', Vue.h('a', { style: 'font-weight:700;cursor:pointer', onClick: () => { undoFn(); antd.message.destroy(key); triggerToast('已復原', 'info'); } }, '復原')]) });
+                };
+                const markAsRead = (record) => {
+                    const snap = clone(record);
+                    record.approvalStatus = 'archived'; record.isAppliedInRead = false;
+                    toastWithUndo(`已將 ${record.code} 移至「已讀」`, () => restoreRecord(snap));
+                };
+                const confirmBlacklist = (record) => {
+                    antd.Modal.confirm({
+                        title: '加入黑名單', content: `確定將 ${record.code} 加入黑名單？此操作會清空該航線的通知紀錄。`, okText: '加入黑名單', cancelText: '取消',
+                        onOk: () => { const snap = clone(record); record.approvalStatus = 'blacklisted'; record.apiLogs = []; toastWithUndo(`已將 ${record.code} 移至「黑名單航線」`, () => restoreRecord(snap)); }
+                    });
+                };
+                const isNewRoute = (r) => !(r.apiLogs && r.apiLogs.length > 0);
+                const isExpandable = (r) => sidebarSelection.value !== 'approve' || (r.apiLogs?.length > 0 && r.approvalStatus !== 'blacklisted');
+                const onCollapseChange = (keys) => {
+                    const arr = Array.isArray(keys) ? keys : [keys];
+                    expandedKeys.value = arr.filter(k => { const r = dataSource.value.find(x => x.key === k); return r && isExpandable(r); });
+                };
+                const applyModalVisible = ref(false); const applyTarget = ref(null); const applyItems = ref([]);
+                const openApplyModal = (record) => {
+                    applyTarget.value = record;
+                    applyItems.value = (record.apiLogs || []).flatMap(l => l.changes).filter(c => !c.applied).map(c => ({ change: c, checked: true }));
+                    applyModalVisible.value = true;
+                };
+                const confirmApply = () => {
+                    const record = applyTarget.value; if (!record) return;
+                    const isNew = isNewRoute(record); const items = applyItems.value; const picked = items.filter(i => i.checked);
+                    if (!isNew && items.length > 0 && picked.length === 0) { triggerToast('請至少勾選一個要套用的欄位', 'warning'); return; }
+                    const snap = clone(record);
+                    picked.forEach(i => applyJsonValueDirectly(record, i.change, true));
+                    const all = (record.apiLogs || []).flatMap(l => l.changes); const done = all.filter(c => c.applied).length;
+                    const full = isNew || done >= all.length;
+                    record.approvalStatus = 'archived'; record.isAppliedInRead = full; record.appliedPartial = !full; record.appliedCount = done; record.appliedTotal = all.length;
+                    applyModalVisible.value = false;
+                    toastWithUndo(isNew ? `已建立 ${record.code} 主檔，並移至「已讀」` : (full ? `已套用全部欄位，${record.code} 已移至「已讀」` : `已部分套用 ${done}/${all.length} 欄位，${record.code} 已移至「已讀」`), () => restoreRecord(snap));
+                };
+                const manageFromNotice = ref(null);
+                const enterManage = (record) => { manageFromNotice.value = record.key; sidebarSelection.value = 'management'; openEditForm(record); };
+                const backToList = () => {
+                    if (manageFromNotice.value) { manageFromNotice.value = null; sidebarSelection.value = 'approve'; activeTab.value = 'pending'; }
+                    currentView.value = 'list';
+                };
 
                 const handleSeaDayChange = (day) => {
                     if (day.isSeaDay) { 
@@ -2974,6 +3005,76 @@
                     triggerToast(`黑名單航線 ${record.code} 已成功復活！已重新打入最新 JSON 數據並進入「待審核」。`, 'success');
                 };
 
+                // ===== 表單內嵌異動（欄位下方顯示＋套用） =====
+                const formSnapshot = ref('');
+                const serializeForm = (f) => JSON.stringify({ ...f, apiLogs: undefined, historyLogs: undefined });
+                const isFormDirty = computed(() => !!formFields.value && serializeForm(formFields.value) !== formSnapshot.value);
+
+                const pathKey = (p) => (p || []).join('.');
+                const getByPath = (obj, p) => p.reduce((o, k) => (o == null ? undefined : o[k]), obj);
+                const setByPath = (obj, p, val) => {
+                    let o = obj;
+                    for (let i = 0; i < p.length - 1; i++) {
+                        if (o[p[i]] == null) o[p[i]] = typeof p[i + 1] === 'number' ? [] : {};
+                        o = o[p[i]];
+                    }
+                    o[p[p.length - 1]] = val;
+                };
+                const isChangeDone = (c) => !!(c.applied || c._formApplied);
+
+                const formChangeEntries = computed(() => {
+                    const f = formFields.value;
+                    if (!f || f.approvalStatus === 'blacklisted') return [];
+                    return (f.apiLogs || []).flatMap(log => (log.changes || []).map(change => ({ change, time: log.time })));
+                });
+                const allFormChanges = computed(() => formChangeEntries.value.map(e => e.change));
+                const pendingFormChanges = computed(() => allFormChanges.value.filter(c => !isChangeDone(c)));
+
+                const isMappedPath = (p) => {
+                    const f = formFields.value; if (!f || !p) return false;
+                    if (p[0] === 'rooms') return !!(f.rooms && f.rooms[p[1]]) && ['discountPrice', 'originalPrice'].includes(p[2]);
+                    if (p[0] === 'dailySchedules') return !!(f.dailySchedules && f.dailySchedules[p[1]]) && ['dockTime', 'departureTime'].includes(p[2]);
+                    return false;
+                };
+                const unmappedFormChanges = computed(() => formChangeEntries.value.filter(e => !isMappedPath(e.change.keyPath)));
+
+                const getPathChanges = (p) => { const k = pathKey(p); return formChangeEntries.value.filter(e => pathKey(e.change.keyPath) === k); };
+                const hasPendingChange = (p) => getPathChanges(p).some(e => !isChangeDone(e.change));
+                const tabPendingCount = (tab) => pendingFormChanges.value.filter(c => isMappedPath(c.keyPath) && (
+                    (tab === 2 && c.keyPath[0] === 'rooms') || (tab === 3 && c.keyPath[0] === 'dailySchedules'))).length;
+                const roomPendingCount = (rKey) => pendingFormChanges.value.filter(c => c.keyPath[0] === 'rooms' && c.keyPath[1] === rKey && isMappedPath(c.keyPath)).length;
+
+                const applyFieldChange = (change) => {
+                    const v = change.jsonValue ?? change.apiValue;
+                    change._prevValue = getByPath(formFields.value, change.keyPath);
+                    setByPath(formFields.value, change.keyPath, v);
+                    change._formApplied = true;
+                    triggerToast(`已套用「${change.field}」最新值`, 'success');
+                };
+                const revertFieldChange = (change) => {
+                    setByPath(formFields.value, change.keyPath, change._prevValue);
+                    change._formApplied = false; delete change._prevValue;
+                    triggerToast(`已復原「${change.field}」`, 'info');
+                };
+                // 儲存時：表單內已套用的異動標記為 applied
+                const finalizeFormChanges = (f) => {
+                    (f?.apiLogs || []).forEach(log => (log.changes || []).forEach(c => {
+                        if (c._formApplied) { c.applied = true; c.newValue = c.jsonValue ?? c.apiValue; }
+                        delete c._formApplied; delete c._prevValue;
+                    }));
+                };
+
+                const jumpToChange = (change) => {
+                    const p = change.keyPath || [];
+                    if (!isMappedPath(p)) return;
+                    if (p[0] === 'rooms') { formTab.value = 2; formRoomTab.value = p[1]; }
+                    else if (p[0] === 'dailySchedules') { formTab.value = 3; }
+                    setTimeout(() => {
+                        const el = document.querySelector(`[data-change-key="${pathKey(p)}"]`);
+                        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('ring-2', 'ring-amber-400'); setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 1500); }
+                    }, 120);
+                };
+
                 const openCreateForm = () => {
                     editingRecord.value = null;
                     formFields.value = {
@@ -2985,6 +3086,7 @@
                         feeDescription: '', feeIncludedTitle: '費用包含項目', feeExcludedTitle: '費用不包含項目', feeIncludedContent: '', feeExcludedContent: '',
                         dailySchedules: [], apiLogs: [], approvalStatus: 'draft', historyLogs: []
                     };
+                    formSnapshot.value = serializeForm(formFields.value);
                     formTab.value = 1; currentView.value = 'form';
                 };
 
@@ -3001,26 +3103,18 @@
                     if (cloned.feeExcludedContent === undefined) cloned.feeExcludedContent = '';
                     if (Array.isArray(cloned.dailySchedules)) cloned.dailySchedules.forEach(d => { if (d.port === undefined) d.port = d.city || ''; });
 
-                    if (cloned.apiLogs && cloned.apiLogs.length > 0) {
-                        cloned.apiLogs.forEach(log => {
-                            log.changes.forEach(change => {
-                                let obj = cloned;
-                                for (let i = 0; i < change.keyPath.length - 1; i++) {
-                                    if (!obj[change.keyPath[i]]) {
-                                        obj[change.keyPath[i]] = typeof change.keyPath[i+1] === 'number' ? [] : {};
-                                    }
-                                    obj = obj[change.keyPath[i]];
-                                }
-                                obj[change.keyPath[change.keyPath.length - 1]] = change.newValue;
-                            });
-                        });
-                    }
-                    formFields.value = cloned; formTab.value = 1; formRoomTab.value = 'inside'; currentView.value = 'form';
+                    // 欄位預設顯示「目前上架值」，異動需逐欄按「套用」才帶入
+                    (cloned.apiLogs || []).forEach(log => (log.changes || []).forEach(c => { c._formApplied = false; delete c._prevValue; }));
+                    formFields.value = cloned; formTab.value = 1;
+                    formRoomTab.value = Object.keys(cloned.rooms || {})[0] || 'inside';
+                    formSnapshot.value = serializeForm(cloned);
+                    currentView.value = 'form';
                 };
 
                 const handleEditChanges = () => {
                     if (!validateRegionSavePermission()) return;
 
+                    finalizeFormChanges(formFields.value);
                     let finalRecord = {
                         ...formFields.value,
                         approvalStatus: 'draft'
@@ -3078,9 +3172,13 @@
                         if (!validateRegionSavePermission()) return;
                     }
 
+                    if (targetStatus === 'archived' && isFormDirty.value) {
+                        triggerToast('已編輯欄位，無法設為已讀。請先復原所有變更。', 'warning'); return;
+                    }
+                    finalizeFormChanges(formFields.value);
                     let finalRecord = { ...formFields.value, approvalStatus: targetStatus };
                     if (targetStatus === 'blacklisted') finalRecord.apiLogs = []; 
-                    if (targetStatus === 'archived') finalRecord.isAppliedInRead = isApplied;
+                    if (targetStatus === 'archived') finalRecord.isAppliedInRead = isApplied || (editingRecord.value?.approvalStatus === 'archived' && !!editingRecord.value?.isAppliedInRead);
 
                     let actionText = ''; let detailsText = '';
                     if (targetStatus === 'blacklisted') { actionText = '加入黑名單'; detailsText = '將此航線移入黑名單，清空通知。'; } 
@@ -3111,7 +3209,25 @@
                         dataSource.value = [finalRecord, ...dataSource.value];
                         triggerToast('成功新增郵輪航線設定！');
                     }
+                    if (manageFromNotice.value && targetStatus === 'published') {
+                        manageFromNotice.value = null; sidebarSelection.value = 'management'; activeTab.value = 'active';
+                        triggerToast('已儲存，航線已移至「有效航線」，並從異動通知清除。', 'success');
+                    }
+                    // 設為已讀 / 加入黑名單：導回「航線異動通知」對應 Tab
+                    if (targetStatus === 'archived' || targetStatus === 'blacklisted') {
+                        manageFromNotice.value = null;
+                        sidebarSelection.value = 'approve';
+                        activeTab.value = targetStatus;
+                    }
                     currentView.value = 'list';
+                };
+
+                const confirmBlacklistFromForm = () => {
+                    antd.Modal.confirm({
+                        title: '加入黑名單', content: `確定將 ${formFields.value?.code || '此航線'} 加入黑名單？此操作會清空該航線的通知紀錄。`,
+                        okText: '加入黑名單', cancelText: '取消', okType: 'danger',
+                        onOk: () => handleSave('blacklisted')
+                    });
                 };
 
                 const getPromoCategoryLabel = (category) => {
@@ -3212,6 +3328,7 @@
                 return {
                     sidebarSelection, currentView, activeTab, searchText, brandFilter, shipFilter, regionFilter,
                     startPortFilter, endPortFilter, pendingTypeFilter, archivedStatusFilter, publishStatusFilter, dateFilter, expandedKeys, selectedKeys, 
+                    brandOptions, filteredShipOptions,
                     formTab, formRoomTab, formFields, editingRecord, currentTabs, roomKeys, roomLabelMap, cityOptions, portOptions, getPortLabel,
                     adminRegionOptions, getRegionLabel, currentSelectedRegion, regionErrorType, validateRegionSavePermission,
                     
@@ -3222,7 +3339,7 @@
                     toggleSelection, handleTranslate, handleBatchTranslate, handleBatchAction, simulateApiUpdate, openCreateForm,
                     openEditForm, handleEditChanges, addDay, removeDay, beforeUpload, handleAdminImageUpload, handleDayImageUpload, handleSave, triggerToast, switchSidebar, resetToDashboard,
                     getStatusLabel, getBadgeClass, handleSeaDayChange, handleTogglePublish, syncApiChangeToForm, filteredHistoryLogs, renderMarkdown,
-                    markAsRead, applyLatestJsonToInput, applyJsonValueDirectly, reviveBlacklistedRoute, availableDatesOptions, getDayNumber,
+                    markAsRead, confirmBlacklist, isNewRoute, isExpandable, onCollapseChange, applyModalVisible, applyTarget, applyItems, openApplyModal, confirmApply, enterManage, backToList, applyLatestJsonToInput, applyJsonValueDirectly, reviveBlacklistedRoute, availableDatesOptions, getDayNumber,
 
                     pinnedViewBrand, pinnedViewShip, pinnedShipOptions, pinnedViewAvailableRoutes, pinnedViewSelectedRoutes,
                     pinnedViewSearchText, pinnedViewMonthFilter, openPinnedView, addPinnedRoute, removePinnedRoute, movePinnedRoute,
@@ -3240,6 +3357,9 @@
                     getGeoColumns, handleGeoAddNew, handleGeoEdit, handleGeoDelete, confirmGeoDelete, onGeoFormSubmit,
                     openGeoQuickAdd, onGeoQuickAddSubmit, confirmQuickManualConfirmToggle,
 
+                    isFormDirty, allFormChanges, pendingFormChanges, unmappedFormChanges, getPathChanges, hasPendingChange,
+                    tabPendingCount, roomPendingCount, applyFieldChange, revertFieldChange, isChangeDone, jumpToChange, confirmBlacklistFromForm,
+
                     isRegionManageModalVisible, isRegionEditModalVisible, currentEditingRegion, regionEditForm,
                     openRegionManageModal, openRegionEditModal, saveRegion, deleteRegion, regionManageColumns
                 };
@@ -3249,6 +3369,39 @@
         if (typeof dayjs_plugin_customParseFormat !== 'undefined') dayjs.extend(dayjs_plugin_customParseFormat);
         if (typeof dayjs_plugin_weekday !== 'undefined') dayjs.extend(dayjs_plugin_weekday);
         
+        // 欄位下方的 API 異動條
+        app.component('field-change', {
+            props: { change: Object, time: String, showField: Boolean },
+            emits: ['apply', 'revert'],
+            methods: {
+                fmt(v) { if (v === null || v === undefined || v === '') return '—'; return `${this.change.prefix ? this.change.prefix + ' ' : ''}${typeof v === 'number' ? v.toLocaleString() : v}`; }
+            },
+            computed: {
+                state() { return this.change.applied ? 'done' : (this.change._formApplied ? 'applied' : 'pending'); },
+                json() { return this.change.jsonValue ?? this.change.apiValue; }
+            },
+            template: `
+                <div :data-change-key="(change.keyPath || []).join('.')" class="mt-2 rounded-lg border p-2.5 px-3 text-xs transition-shadow"
+                     :class="state === 'pending' ? 'border-amber-300 bg-amber-50/70' : 'border-emerald-200 bg-emerald-50/60'">
+                    <div class="flex items-center justify-between gap-2 mb-1.5">
+                        <span class="font-bold" :class="state === 'pending' ? 'text-amber-700' : 'text-emerald-700'">
+                            {{ state === 'pending' ? '⚠️ API 異動' : '✓ 已套用' }}<span v-if="showField" class="text-slate-600">・{{ change.field }}</span>
+                        </span>
+                        <span v-if="time" class="text-[10px] text-slate-400 font-medium">{{ time }} 收到</span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-slate-500">上架值 <b class="text-slate-700">{{ fmt(change.oldValue) }}</b></span>
+                        <span class="text-slate-300">➔</span>
+                        <span class="text-slate-500">最新 Json <b class="text-red-600">{{ fmt(json) }}</b></span>
+                        <span class="ml-auto">
+                            <a-button v-if="state === 'pending'" type="primary" size="small" @click.stop="$emit('apply')">套用</a-button>
+                            <a-button v-else-if="state === 'applied'" size="small" @click.stop="$emit('revert')">復原</a-button>
+                        </span>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-1">前次 Scan {{ fmt(change.prevScanValue ?? change.oldValue) }}　・　本次 Scan {{ fmt(change.apiValue) }}</div>
+                </div>`
+        });
+
         app.use(antd);
         app.mount('#app');
     </script>
